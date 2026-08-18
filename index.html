@@ -467,7 +467,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
    CONFIG  — edit these, then re-run build_webapp.py (or edit the built file)
    ======================================================================= */
 const CONFIG = {
-  OTP_MODE: "demo",          // "demo" (shows code on screen) | "emailjs" (real email)
+  OTP_MODE: "emailjs",       // "demo" (shows code on screen) | "emailjs" (real email)
   OTP_LENGTH: 6,
   OTP_TTL_SECONDS: 300,      // code valid for 5 minutes
   RESEND_COOLDOWN: 30,       // seconds between resends
@@ -548,102 +548,182 @@ function parseActivityHtml(raw){
 }
 
 /* =======================================================================
-   STATEMENT PARSERS  — Net Banking & Credit Card (.csv / .xlsx)
-   Both emit the SAME transaction object shape as parseActivityHtml,
-   so every downstream chart/filter/export works unchanged.
+   GENERIC STATEMENT ENGINE  — auto-detects layout for ANY bank/card
+   CSV or XLSX. Finds the header row, maps columns by alias, works out the
+   debit/credit convention, and emits the SAME transaction object shape as
+   parseActivityHtml so every chart/filter/export works unchanged.
    ======================================================================= */
 const P2=n=>String(n).padStart(2,"0");
+const MON3={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
 
-// Read a File (csv or xlsx) into an array of row objects keyed by header.
-async function readWorkbookRows(file){
+// Read a workbook (csv or xlsx) as a raw 2-D grid of strings (header not assumed on row 1).
+async function readWorkbookGrid(file){
   const isCsv=/\.csv$/i.test(file.name);
-  let wb;
-  if(isCsv){ wb=XLSX.read(await file.text(),{type:"string"}); }
-  else{ wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"}); }
+  const wb = isCsv
+    ? XLSX.read(await file.text(),{type:"string"})
+    : XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"});
   const sheet=wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(sheet,{defval:"",raw:false});
+  return XLSX.utils.sheet_to_json(sheet,{header:1,defval:"",raw:false,blankrows:true});
 }
 
-// Case/space-insensitive header lookup: value for the first header that matches any candidate.
-function pick(row,cands){
-  const keys=Object.keys(row);
-  for(const c of cands){
-    const hit=keys.find(k=>k.trim().toLowerCase()===c.toLowerCase());
-    if(hit!==undefined) return row[hit];
-  }
-  return "";
-}
-const toNum=v=>{ if(v==null) return 0; const n=parseFloat(String(v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?0:Math.round(Math.abs(n)*100)/100; };
-
-// Parse a date. Statements use MM/DD/YYYY; we also tolerate M/D/YYYY, dashes,
-// ISO (YYYY-MM-DD), and Excel serial numbers (how .xlsx often stores dates).
 function fromYMD(yr,mo,da){
-  if(mo<1||mo>12||da<1||da>31) return null;
+  if(!yr||mo<1||mo>12||da<1||da>31) return null;
   return {date:`${yr}-${P2(mo)}-${P2(da)}`, month:`${yr}-${P2(mo)}`, key:Number(`${yr}${P2(mo)}${P2(da)}000000`)};
 }
+// Parse many date formats: DD-MON-YY(YY), MM/DD/YYYY, DD/MM/YYYY (heuristic), ISO, Excel serials.
 function parseStmtDate(v){
   if(v===null||v===undefined||v==="") return null;
   const s=String(v).trim();
-  // Excel serial date (e.g. 45927) → days since 1899-12-30
+  // Excel serial (days since 1899-12-30)
   if(/^\d+(\.\d+)?$/.test(s) && Number(s)>=20000 && Number(s)<80000){
     const d=new Date(Math.round((Number(s)-25569)*86400*1000));
     if(!isNaN(d)) return fromYMD(d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate());
   }
-  // ISO YYYY-MM-DD
-  let m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  // DD-MON-YY or DD-MON-YYYY  (e.g. 04-MAY-23)
+  let m=/^(\d{1,2})[-\/ ]([A-Za-z]{3})[A-Za-z]*[-\/ ](\d{2,4})/.exec(s);
+  if(m){ const mo=MON3[m[2].toUpperCase()]; let yr=+m[3]; if(yr<100) yr+=2000; return fromYMD(yr,mo,+m[1]); }
+  // ISO YYYY-MM-DD (optionally with time)
+  m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
   if(m) return fromYMD(+m[1],+m[2],+m[3]);
-  // MM/DD/YYYY (statement default) — also tolerates dashes
-  m=/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/.exec(s);
-  if(m){ let yr=+m[3]; if(yr<100) yr+=2000; return fromYMD(yr,+m[1],+m[2]); }
+  // Numeric with separators: decide DD/MM vs MM/DD by whether first field >12
+  m=/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/.exec(s);
+  if(m){ let a=+m[1],b=+m[2],yr=+m[3]; if(yr<100) yr+=2000;
+    let mo,da; if(a>12){da=a;mo=b;} else if(b>12){mo=a;da=b;} else {mo=a;da=b;} // ambiguous → assume MM/DD
+    return fromYMD(yr,mo,da); }
+  return null;
+}
+function isDateCell(v){ return !!parseStmtDate(v); }
+// A cell that looks like a money amount (has digits, optional sign, commas, decimal).
+function looksAmount(v){ const s=String(v).trim(); return /^-?\(?[\d,]+(\.\d+)?\)?$/.test(s) && /\d/.test(s); }
+// Signed number: handles "1,234.50", "-629.00", "(500)" as negative, "500 Cr" / "500 Dr".
+function signedNum(v){
+  if(v==null) return 0;
+  let s=String(v).trim(); if(!s) return 0;
+  let sign=1;
+  if(/^\(.*\)$/.test(s)){ sign=-1; s=s.slice(1,-1); }
+  if(/(^-)/.test(s)) sign=-1;
+  if(/\bcr\b/i.test(s)) sign=-1;          // credit shown with a Cr tag
+  if(/\bdr\b/i.test(s)) sign=1;
+  const n=parseFloat(s.replace(/[^0-9.]/g,""));
+  return isNaN(n)?0:sign*Math.round(n*100)/100;
+}
+
+// Column alias sets (all lowercase, space/punct-insensitive comparison).
+const COL={
+  date:["date","txn date","transaction date","value date","tran date","posting date","date of transaction"],
+  desc:["description","transaction details","narration","details","particulars","merchant","transaction remarks","remarks","transaction","naration"],
+  debit:["debit","withdrawal","withdrawal amt","withdrawal amount","withdrawal amt.","dr","debit amount","paid out"],
+  credit:["credit","deposit","deposit amt","deposit amount","cr","credit amount","paid in"],
+  amount:["amount","amount(in rs)","amount (in rs)","amount in rs","amt","transaction amount","txn amount","amount(inr)","billing amount"],
+  type:["type","dr/cr","cr/dr","debit/credit","transaction type","drcr","indicator"],
+  ref:["ref no","reference","reference no","cheque no","ref","chq no","transaction id","utr"],
+  balance:["balance","closing balance","running balance","available balance"]
+};
+const norm=s=>String(s).trim().toLowerCase().replace(/[._]/g," ").replace(/\s+/g," ").trim();
+function matchCol(header,aliases){
+  for(let i=0;i<header.length;i++){ const h=norm(header[i]); if(aliases.includes(h)) return i; }
+  // loose contains-match fallback
+  for(let i=0;i<header.length;i++){ const h=norm(header[i]); if(aliases.some(a=>h===a||h.includes(a))) return i; }
+  return -1;
+}
+
+// Find the header row: the row that names a date column AND (an amount OR debit/credit) column.
+function findHeader(grid){
+  for(let i=0;i<Math.min(grid.length,40);i++){
+    const row=grid[i]; if(!row||row.length<2) continue;
+    const hasDate=matchCol(row,COL.date)>=0;
+    const hasMoney=matchCol(row,COL.amount)>=0 || matchCol(row,COL.debit)>=0 || matchCol(row,COL.credit)>=0;
+    if(hasDate && hasMoney) return i;
+  }
+  // Fallback: no named header — find first row that DATA-looks like date + amount, treat as headerless.
+  for(let i=0;i<Math.min(grid.length,40);i++){
+    const row=grid[i]; if(!row) continue;
+    const dCol=row.findIndex(isDateCell), aCol=row.findIndex(looksAmount);
+    if(dCol>=0 && aCol>=0 && aCol!==dCol) return -1-i; // encode "headerless starting at i" as negative
+  }
   return null;
 }
 
-// NET BANKING: Date, Description, Debit, Credit, Balance
-function parseBankStatement(rows){
-  const out=[];
-  rows.forEach(r=>{
-    const d=parseStmtDate(pick(r,["Date","Txn Date","Transaction Date","Value Date"]));
-    if(!d) return;
-    const debit=toNum(pick(r,["Debit","Withdrawal","Withdrawal Amt","Dr"]));
-    const credit=toNum(pick(r,["Credit","Deposit","Deposit Amt","Cr"]));
-    const desc=cleanText(String(pick(r,["Description","Narration","Details","Transaction Details","Particulars"])||""));
-    if(debit===0 && credit===0) return;                 // skip blank/opening-balance rows
-    const isExp=debit>0;
-    const t={key:d.key,date:d.date,time:"",month:d.month,
-      action:isExp?"Debit":"Credit",direction:isExp?"Expense":"Income",
-      amount:isExp?debit:credit,payee:desc||NO_NAME,
-      method:"Bank account",status:"Completed",
-      ref:cleanText(String(pick(r,["Ref No","Reference","Cheque No","Ref"])||"")),
-      balance:pick(r,["Balance","Closing Balance","Running Balance"])||""};
-    t.category=categorize(t);
-    out.push(t);
-  });
-  out.sort((a,b)=>a.key-b.key);
-  return out;
-}
+// Detect columns + amount convention, then parse. Returns {rows, info}.
+function parseStatementGrid(grid, sourceLabel){
+  const hres=findHeader(grid);
+  let header=null, startRow=0, cols={};
+  if(hres===null){ return {rows:[], info:{error:"No date + amount columns found."}}; }
 
-// CREDIT CARD: Date, Description, Amount, Type (Debit/Credit)
-function parseCardStatement(rows){
-  const out=[];
-  rows.forEach(r=>{
-    const d=parseStmtDate(pick(r,["Date","Txn Date","Transaction Date"]));
-    if(!d) return;
-    const amount=toNum(pick(r,["Amount","Amt","Transaction Amount"]));
-    if(amount===0) return;
-    const typeRaw=String(pick(r,["Type","Dr/Cr","Debit/Credit","Transaction Type"])||"").trim().toLowerCase();
-    // On a card, a "Debit" is a purchase (spend); "Credit" is a payment/refund (money in).
-    const isExp=!/^cr|credit|payment|refund|received/.test(typeRaw);
-    const desc=cleanText(String(pick(r,["Description","Merchant","Details","Narration","Particulars"])||""));
-    const t={key:d.key,date:d.date,time:"",month:d.month,
-      action:isExp?"Debit":"Credit",direction:isExp?"Expense":"Income",
-      amount,payee:desc||NO_NAME,
-      method:"Credit card",status:"Completed",
-      ref:cleanText(String(pick(r,["Ref No","Reference","Ref"])||""))};
+  if(hres>=0){
+    header=grid[hres]; startRow=hres+1;
+    cols={ date:matchCol(header,COL.date), desc:matchCol(header,COL.desc),
+      debit:matchCol(header,COL.debit), credit:matchCol(header,COL.credit),
+      amount:matchCol(header,COL.amount), type:matchCol(header,COL.type),
+      ref:matchCol(header,COL.ref), balance:matchCol(header,COL.balance) };
+  }else{
+    // headerless: infer by content from the first data row
+    startRow=-hres-1; const probe=grid[startRow]||[];
+    cols={ date:probe.findIndex(isDateCell), amount:-1, desc:-1, debit:-1, credit:-1, type:-1, ref:-1, balance:-1 };
+    // amount = last amount-looking column; desc = longest text column
+    let amtCol=-1; probe.forEach((c,i)=>{ if(i!==cols.date && looksAmount(c)) amtCol=i; });
+    cols.amount=amtCol;
+    let best=-1,bestLen=0; probe.forEach((c,i)=>{ const L=String(c).replace(/[\d.,\-]/g,"").trim().length; if(i!==cols.date && i!==amtCol && L>bestLen){bestLen=L;best=i;} });
+    cols.desc=best;
+    header=[];
+  }
+  if(cols.date<0) return {rows:[], info:{error:"Couldn't identify a date column."}};
+
+  // Decide amount convention
+  let convention;
+  if(cols.debit>=0 || cols.credit>=0) convention="debit_credit";
+  else if(cols.amount>=0 && cols.type>=0) convention="amount_type";
+  else if(cols.amount>=0) convention="signed_amount";
+  else return {rows:[], info:{error:"Couldn't identify amount columns."}};
+
+  const get=(row,i)=> (i>=0 && i<row.length) ? row[i] : "";
+  const out=[]; let skipped=0, incomeSign=null;
+
+  for(let i=startRow;i<grid.length;i++){
+    const row=grid[i]; if(!row||!row.length){ continue; }
+    const d=parseStmtDate(get(row,cols.date));
+    if(!d){ skipped++; continue; }                       // metadata, titles, footer, card no.
+    const desc=cleanText(String(get(row,cols.desc)||""));
+
+    let amount=0, isExp=true;
+    if(convention==="debit_credit"){
+      const dr=Math.abs(signedNum(get(row,cols.debit)));
+      const cr=Math.abs(signedNum(get(row,cols.credit)));
+      if(dr===0 && cr===0){ skipped++; continue; }
+      isExp = dr>0; amount = dr>0?dr:cr;
+    }else if(convention==="amount_type"){
+      amount=Math.abs(signedNum(get(row,cols.amount)));
+      if(amount===0){ skipped++; continue; }
+      const ty=norm(get(row,cols.type));
+      isExp = !/^(cr|credit|payment|refund|received|cash back|cashback|c)$/.test(ty) && !/credit|refund|received|payment received/.test(ty);
+    }else{ // signed_amount: positive vs negative. Sign meaning differs by bank → infer.
+      const raw=signedNum(get(row,cols.amount));
+      if(raw===0){ skipped++; continue; }
+      // Heuristic: on most card statements, spends are the majority & positive; money-in is negative.
+      // Use description hints to lock the sign meaning once, then apply consistently.
+      if(incomeSign===null){
+        if(/received|payment|refund|reversal|cashback|credit/i.test(desc)) incomeSign=Math.sign(raw)||1;
+      }
+      const looksIncomeByText=/received|payment received|refund|reversal|cashback/i.test(desc);
+      if(incomeSign!==null) isExp = Math.sign(raw)!==incomeSign;
+      else isExp = raw>0;
+      if(looksIncomeByText) isExp=false;
+      amount=Math.abs(raw);
+    }
+
+    const t={ key:d.key,date:d.date,time:"",month:d.month,
+      action:isExp?"Debit":"Credit", direction:isExp?"Expense":"Income",
+      amount, payee:desc||NO_NAME,
+      method:sourceLabel==="Credit Card statement"?"Credit card":"Bank account",
+      status:"Completed", ref:cleanText(String(get(row,cols.ref)||"")) };
     t.category=categorize(t);
     out.push(t);
-  });
+  }
   out.sort((a,b)=>a.key-b.key);
-  return out;
+  const label=(k)=> (hres>=0 && cols[k]>=0 && header[cols[k]]!=null) ? String(header[cols[k]]) : "(auto)";
+  return { rows:out, info:{ convention, parsed:out.length, skipped,
+    mappedDate:label("date"), mappedDesc:label("desc"),
+    mappedAmount: convention==="debit_credit"?`${label("debit")} / ${label("credit")}`:label("amount") } };
 }
 
 function computeMeta(rows){
@@ -992,16 +1072,16 @@ function logout(){sessionStorage.removeItem("gp_auth");RAW=[];META={};location.r
 /* =======================================================================
    FILE UPLOAD + PARSE
    ======================================================================= */
-let pickedFile=null, parsedRows=null, srcType="gpay";
+let pickedFile=null, parsedRows=null, srcType="gpay", lastDetect=null;
 const SRC={
   gpay:{accept:".html,.htm,text/html", hint:"Accepted: My Activity.html (Google Pay activity export)",
         foot:"Tip: in Google Takeout choose <i>Google Pay</i>; the export contains <i>My Activity.html</i>.",
         label:"Google Pay"},
-  bank:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns: Date, Description, Debit, Credit, Balance",
-        foot:"Expected columns: <i>Date, Description, Debit, Credit, Balance</i> · dates as MM/DD/YYYY.",
+  bank:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns are detected automatically",
+        foot:"Just upload your bank's statement export — the app finds the date, description, and amount columns for you.",
         label:"Net Banking statement"},
-  card:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns: Date, Description, Amount, Type (Debit/Credit)",
-        foot:"Expected columns: <i>Date, Description, Amount, Type</i> (Type = Debit or Credit) · dates as MM/DD/YYYY.",
+  card:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns are detected automatically",
+        foot:"Just upload your card's statement export — the app finds the date, description, and amount columns for you.",
         label:"Credit Card statement"}
 };
 function setSource(src){
@@ -1058,32 +1138,36 @@ async function handleFile(file){
         resetFileUI(); return;
       }
     }else{
-      const raw=await readWorkbookRows(file);
-      if(!raw.length){ msg.className="msg err"; msg.textContent="❌ The file has no data rows."; resetFileUI(); return; }
-      // verify required columns exist
-      const cols=Object.keys(raw[0]).map(k=>k.trim().toLowerCase());
-      const need = srcType==="bank"
-        ? {ok:cols.includes("date") && (cols.includes("debit")||cols.includes("credit")||cols.includes("withdrawal")||cols.includes("deposit")),
-           want:"Date, Description, Debit, Credit, Balance"}
-        : {ok:cols.includes("date") && cols.includes("amount") && (cols.includes("type")||cols.includes("dr/cr")),
-           want:"Date, Description, Amount, Type (Debit/Credit)"};
-      if(!need.ok){
+      const grid=await readWorkbookGrid(file);
+      if(!grid.length){ msg.className="msg err"; msg.textContent="❌ The file has no rows."; resetFileUI(); return; }
+      const res=parseStatementGrid(grid, SRC[srcType].label);
+      if(res.info && res.info.error){
         msg.className="msg err";
-        msg.innerHTML="❌ Missing expected columns. This dashboard needs: <b>"+need.want+"</b>.";
+        msg.innerHTML="❌ Couldn't read this statement automatically: "+res.info.error+
+          " The file needs a row of column names including a date and an amount (or debit/credit).";
         resetFileUI(); return;
       }
-      rows = srcType==="bank" ? parseBankStatement(raw) : parseCardStatement(raw);
+      rows=res.rows;
       if(!rows.length){
         msg.className="msg err";
-        msg.textContent="❌ No usable transactions found (check the Date and amount columns).";
+        msg.textContent="❌ No transactions found — a date column was detected but no rows parsed.";
         resetFileUI(); return;
       }
+      lastDetect=res.info;                        // stash so parseFlow can note it
     }
   }catch(e){ msg.className="msg err"; msg.textContent="Could not read the file: "+(e.message||e); resetFileUI(); return; }
 
   pickedFile=file; parsedRows=rows;
   msg.className="msg ok";
-  msg.textContent="✓ Valid "+SRC[srcType].label+" — "+rows.length.toLocaleString("en-IN")+" transactions found.";
+  if(srcType!=="gpay" && lastDetect){
+    const d=lastDetect;
+    msg.innerHTML="✓ Detected automatically — <b>"+rows.length.toLocaleString("en-IN")+"</b> transactions."+
+      "<div class='muted' style='font-size:11.5px;margin-top:4px;font-weight:400'>Columns → date: <b>"+esc(d.mappedDate)+
+      "</b>, description: <b>"+esc(d.mappedDesc)+"</b>, amount: <b>"+esc(d.mappedAmount)+"</b>"+
+      (d.skipped?(" · "+d.skipped+" non-transaction rows skipped"):"")+"</div>";
+  }else{
+    msg.textContent="✓ Valid "+SRC[srcType].label+" — "+rows.length.toLocaleString("en-IN")+" transactions found.";
+  }
   document.getElementById("parseBtn").disabled=false;
 }
 
