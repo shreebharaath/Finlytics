@@ -308,6 +308,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <h1><span class="logo"></span> Finlytics</h1>
     <span class="who" id="whoami"></span>
     <div class="acts">
+      <button class="sbtn" id="savedLabelsBtn">🏷️ Saved labels</button>
       <button class="sbtn" id="reupload">⬆ Upload another file</button>
       <button class="sbtn" id="logoutBtn">🔒 Sign out</button>
     </div>
@@ -408,8 +409,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <ul class="safelist">
       <li><span class="ic">📱</span><b>Your file never leaves your device.</b>
         <span class="d"> When you choose <i>My&nbsp;Activity.html</i>, it’s opened right here in your browser — just like opening a photo on your phone. It is never sent over the internet.</span></li>
-      <li><span class="ic">🗑️</span><b>Nothing is stored.</b>
-        <span class="d"> The numbers live only in your browser’s temporary memory while this page is open. Tap <i>Sign out</i> or close the tab and everything disappears — there’s no database and no cloud copy.</span></li>
+      <li><span class="ic">🗑️</span><b>Your transactions are never stored.</b>
+        <span class="d"> The numbers live only in your browser’s temporary memory while this page is open. Tap <i>Sign out</i> or close the tab and they disappear — there’s no database and no cloud copy.</span></li>
+      <li><span class="ic">🏷️</span><b>Only your category labels are remembered — on this device.</b>
+        <span class="d"> If you re-assign a merchant’s category, that single preference (e.g. “LIFE INSURANCE = Investments”) is saved in <b>this browser only</b> so you don’t have to redo it after each upload. It holds merchant names and categories — <b>never</b> amounts, dates, or your statement. It never leaves your device, and you can clear it any time from <i>🏷️ Saved labels</i>.</span></li>
       <li><span class="ic">🙈</span><b>Account numbers stay masked.</b>
         <span class="d"> Google’s file only contains the <b>last few digits</b> of a bank account (e.g. <i>XXXXXXX3854</i>). Your full account number, card number, CVV, UPI&nbsp;PIN and passwords are <b>never</b> in the file — so this tool can never see them.</span></li>
       <li><span class="ic">✉️</span><b>Only your email is used — once.</b>
@@ -742,10 +745,30 @@ const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:0}
 const INR2=n=>"₹"+Number(n||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
 let state={from:null,to:null,type:"All",cat:"All",status:"successful",search:"",amtRange:"All",sortKey:"date",sortDir:-1,page:1,pageSize:50};
 let charts={};
-const CAT_OVERRIDES={};                 // payee(UPPER) -> category, set via re-assignment UI (session only)
+// Persistent merchant→category labels. Stored ONLY on this device (localStorage),
+// never uploaded. Holds preferences (merchant name → category), not any financial data.
+const CATMAP_KEY="finlytics_catmap_v1";
+function loadCatMap(){
+  try{ const raw=localStorage.getItem(CATMAP_KEY); return raw?JSON.parse(raw):{}; }
+  catch(e){ return {}; }   // storage disabled/blocked → fall back to in-memory only
+}
+function saveCatMap(){
+  try{ localStorage.setItem(CATMAP_KEY, JSON.stringify(CAT_OVERRIDES)); return true; }
+  catch(e){ return false; }
+}
+const CAT_OVERRIDES=loadCatMap();       // payee(UPPER) -> category, persisted across sessions & uploads
 
 const months=()=>[...new Set(RAW.map(t=>t.month).filter(Boolean))].sort();
 const categories=()=>[...new Set(RAW.map(t=>t.category))].sort();
+// Full, stable list for the re-assign dropdown: canonical categories + special buckets
+// + whatever's in the data + any category the user has already saved as a label.
+function allCategories(){
+  const base=CATEGORY_RULES.map(r=>r[0]);
+  const special=["Others / Uncategorized","Transfers / P2P","Income / Money Received","Rewards & Cashback"];
+  const fromData=RAW.map(t=>t.category);
+  const fromLabels=Object.values(CAT_OVERRIDES);
+  return [...new Set([...base,...special,...fromData,...fromLabels])].sort();
+}
 
 function effCat(t){ return CAT_OVERRIDES[t.payee.toUpperCase()] || t.category; }
 function applyFilters(){
@@ -893,6 +916,42 @@ function drawerTxnTable(txns){
   sorted.forEach(t=>{html+=`<tr><td>${t.date} <span class="muted">${t.time}</span></td><td>${esc(t.payee)}</td><td class="amt dir-Expense">−${INR2(t.amount)}</td></tr>`;});
   return html+"</tbody>";
 }
+function showSavedLabels(){
+  const keys=Object.keys(CAT_OVERRIDES);
+  document.getElementById("drawerTitle").innerHTML=`🏷️ Saved category labels`;
+  document.getElementById("drawerSub").textContent=`Stored only on this device · auto-applied to every upload`;
+  document.getElementById("drawerStats").innerHTML=
+    miniStat("Saved labels",keys.length.toLocaleString("en-IN"))+
+    miniStat("Storage","This device only");
+  charts.drawer&&charts.drawer.destroy(); charts.drawer=null;
+  const cvs=document.getElementById("drawerChart"); if(cvs) cvs.style.display="none";
+  let ext;
+  if(!keys.length){
+    ext=`<div class="muted" style="font-size:13px;padding:8px 0">No labels saved yet. Open any merchant and choose <b>Re-assign category → Save</b>; it'll be remembered here and applied automatically next time you upload.</div>`;
+  }else{
+    ext=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span class="muted" style="font-size:12px">${keys.length} merchant${keys.length>1?"s":""} labelled</span>
+      <button class="tbtn alt" id="clearAllLabels" style="padding:5px 10px">Clear all</button></div>
+      <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Merchant</th><th>Category</th><th></th></tr></thead><tbody>`;
+    keys.sort().forEach(k=>{ ext+=`<tr><td>${esc(k)}</td><td><span class="tag">${esc(CAT_OVERRIDES[k])}</span></td>`+
+      `<td class="amt"><span class="link delLabel" data-k="${esc(k)}" style="cursor:pointer;color:var(--red)">remove</span></td></tr>`; });
+    ext+=`</tbody></table></div>`;
+  }
+  const extEl=document.getElementById("drawerExtra"); extEl.innerHTML=ext;
+  document.getElementById("drawerTable").innerHTML="";
+  if(keys.length){
+    document.getElementById("clearAllLabels").onclick=()=>{
+      if(confirm("Remove all saved category labels from this device? This can't be undone.")){
+        Object.keys(CAT_OVERRIDES).forEach(k=>delete CAT_OVERRIDES[k]);
+        saveCatMap(); renderAll(); showSavedLabels();
+      }
+    };
+    extEl.querySelectorAll(".delLabel").forEach(el=>el.onclick=()=>{
+      delete CAT_OVERRIDES[el.dataset.k]; saveCatMap(); renderAll(); showSavedLabels();
+    });
+  }
+  openDrawer();
+}
 function openCategoryDrawer(cat){
   const rows=applyFilters().filter(t=>t.direction==="Expense" && effCat(t)===cat);
   const total=rows.reduce((a,t)=>a+t.amount,0);
@@ -911,6 +970,7 @@ function openCategoryDrawer(cat){
   const extEl=document.getElementById("drawerExtra"); extEl.innerHTML=ext;
   extEl.querySelectorAll("tr.clickable").forEach(tr=>tr.onclick=()=>openMerchantDrawer(tr.dataset.p));
   document.getElementById("drawerTable").innerHTML=drawerTxnTable(rows);
+  document.getElementById("drawerChart").style.display="";
   openDrawer(); drawerLineChart(rows,"#5b8cff");
 }
 function openMerchantDrawer(payee){
@@ -928,18 +988,21 @@ function openMerchantDrawer(payee){
     miniStat("Avg Ticket",INR(avg))+miniStat("Largest",INR(Math.max(0,...amounts)))+
     miniStat("First Seen",first)+miniStat("Last Seen",last);
   const curCat=CAT_OVERRIDES[payee.toUpperCase()]||cats[0]||"Others / Uncategorized";
-  const opts=categories().map(c=>`<option ${c===curCat?"selected":""}>${esc(c)}</option>`).join("");
+  const opts=allCategories().map(c=>`<option ${c===curCat?"selected":""}>${esc(c)}</option>`).join("");
   document.getElementById("drawerExtra").innerHTML=
     `<div class="recat"><span class="muted" style="font-size:12px">Re-assign category:</span>
       <select id="recatSel">${opts}</select>
-      <button class="tbtn alt" id="recatApply" style="padding:5px 10px">Apply</button>
-      <span id="recatMsg" class="muted" style="font-size:11px"></span></div>`;
+      <button class="tbtn alt" id="recatApply" style="padding:5px 10px">Save</button>
+      <span id="recatMsg" class="muted" style="font-size:11px"></span></div>
+     <div class="muted" style="font-size:10.5px;margin-top:4px">Saved on this device &amp; auto-applied to future uploads of this merchant.</div>`;
   document.getElementById("drawerTable").innerHTML=drawerTxnTable(exp);
   document.getElementById("recatApply").onclick=()=>{
     CAT_OVERRIDES[payee.toUpperCase()]=document.getElementById("recatSel").value;
-    document.getElementById("recatMsg").textContent="✓ updated";
+    const ok=saveCatMap();
+    document.getElementById("recatMsg").textContent = ok ? "✓ saved" : "✓ applied (couldn’t save on this device)";
     renderAll();
   };
+  document.getElementById("drawerChart").style.display="";
   openDrawer(); drawerLineChart(exp,"#28c76f");
 }
 
@@ -1218,6 +1281,7 @@ window.addEventListener("DOMContentLoaded",()=>{
   // dashboard header
   document.getElementById("reupload").onclick=()=>show("screen-upload");
   document.getElementById("logoutBtn").onclick=logout;
+  document.getElementById("savedLabelsBtn").onclick=showSavedLabels;
 
   // "how to get the file" modal
   const howModal=document.getElementById("howModal");
