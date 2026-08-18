@@ -112,6 +112,17 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   .filechip{display:none;margin-top:14px;padding:10px 14px;border-radius:10px;background:var(--card2);
     border:1px solid var(--line);font-size:13px;align-items:center;justify-content:space-between}
   .filechip.show{display:flex}
+  .filelist{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+  .fitem{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:var(--card2);
+    border:1px solid var(--line);font-size:13px}
+  .fitem .fic{font-size:16px}
+  .fitem .fmeta{flex:1;min-width:0}
+  .fitem .fnm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fitem .fsub{color:var(--muted);font-size:11px;margin-top:1px}
+  .fitem .frm{color:var(--red);cursor:pointer;font-size:12px;white-space:nowrap}
+  .combinedinfo{margin-top:10px;font-size:12.5px;color:var(--muted);text-align:center}
+  .combinedinfo b{color:var(--ink)}
+  .combinedinfo .dupwarn{color:var(--amber)}
   .helplink{color:var(--accent);cursor:pointer;font-size:13px;text-decoration:underline;background:none;border:none;padding:0;font-family:inherit}
 
   /* ---- "how to get the file" modal ---- */
@@ -282,16 +293,15 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
       <div class="drop" id="drop">
         <div class="big">📄⬆️</div>
-        <div><b>Click to choose</b> or drag &amp; drop the file here</div>
+        <div><b>Click to choose</b> or drag &amp; drop — you can add several files</div>
         <div class="hint" id="dropHint">Accepted: My Activity.html (Google Pay activity export)</div>
       </div>
-      <input type="file" id="fileInput" accept=".html,.htm,text/html" style="display:none">
+      <input type="file" id="fileInput" accept=".html,.htm,text/html" multiple style="display:none">
 
       <div style="text-align:center;margin-top:14px"><button type="button" class="helplink" id="howLink">❓ Don’t have the file? How to get it / expected columns</button></div>
 
-      <div class="filechip" id="fileChip">
-        <span id="fileName"></span><span class="link" id="clearFile">remove</span>
-      </div>
+      <div id="fileList" class="filelist"></div>
+      <div id="combinedInfo" class="combinedinfo"></div>
 
       <button id="parseBtn" class="btn" disabled>Parse &amp; view dashboard</button>
       <div class="msg" id="uploadMsg"></div>
@@ -1135,109 +1145,121 @@ function logout(){sessionStorage.removeItem("gp_auth");RAW=[];META={};location.r
 /* =======================================================================
    FILE UPLOAD + PARSE
    ======================================================================= */
-let pickedFile=null, parsedRows=null, srcType="gpay", lastDetect=null;
+let loadedFiles=[], srcType="gpay", lastDetect=null;   // loadedFiles: [{name,size,rows,source}]
 const SRC={
   gpay:{accept:".html,.htm,text/html", hint:"Accepted: My Activity.html (Google Pay activity export)",
         foot:"Tip: in Google Takeout choose <i>Google Pay</i>; the export contains <i>My Activity.html</i>.",
-        label:"Google Pay"},
+        label:"Google Pay", icon:"📱"},
   bank:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns are detected automatically",
         foot:"Just upload your bank's statement export — the app finds the date, description, and amount columns for you.",
-        label:"Net Banking statement"},
+        label:"Net Banking statement", icon:"🏦"},
   card:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns are detected automatically",
         foot:"Just upload your card's statement export — the app finds the date, description, and amount columns for you.",
-        label:"Credit Card statement"}
+        label:"Credit Card statement", icon:"💳"}
 };
 function setSource(src){
+  if(loadedFiles.length && src!==srcType){
+    // switching source with files loaded would mix types — confirm a reset
+    if(!confirm("Switching source type will clear the "+loadedFiles.length+" file(s) already added. Continue?")){
+      document.querySelectorAll(".srccard").forEach(c=>c.classList.toggle("active",c.dataset.src===srcType));
+      return;
+    }
+    loadedFiles=[];
+  }
   srcType=src;
   document.querySelectorAll(".srccard").forEach(c=>c.classList.toggle("active",c.dataset.src===src));
   document.getElementById("fileInput").accept=SRC[src].accept;
   document.getElementById("dropHint").textContent=SRC[src].hint;
   document.getElementById("uploadFoot").innerHTML=SRC[src].foot;
-  resetFileUI();
-  document.getElementById("uploadMsg").textContent="";
-}
-
-function resetFileUI(){
-  pickedFile=null; parsedRows=null;
   document.getElementById("fileInput").value="";
-  document.getElementById("fileChip").classList.remove("show");
-  document.getElementById("parseBtn").disabled=true;
+  document.getElementById("uploadMsg").textContent="";
+  renderFileList();
+}
+function resetFileUI(){
+  loadedFiles=[];
+  document.getElementById("fileInput").value="";
+  renderFileList();
 }
 
-// Validates on selection and parses according to the chosen source type.
-async function handleFile(file){
-  const msg=document.getElementById("uploadMsg"); msg.className="msg"; msg.textContent="";
-  resetFileUI();
-  if(!file) return;
-
-  // 1) extension gate per source
-  if(srcType==="gpay"){
-    if(!(/\.html?$/i.test(file.name) || file.type==="text/html")){
-      msg.className="msg err";
-      msg.innerHTML="❌ For Google Pay, choose the <b>My&nbsp;Activity.html</b> file.";
-      return;
-    }
-  }else{
-    if(!/\.(csv|xlsx|xls)$/i.test(file.name)){
-      msg.className="msg err";
-      msg.innerHTML="❌ Please choose a <b>.csv</b> or <b>.xlsx</b> statement file.";
-      return;
-    }
+// Merge all loaded files and remove duplicates (same date + amount + merchant).
+function combinedRows(){
+  const all=[]; loadedFiles.forEach(f=>all.push(...f.rows));
+  const seen=new Set(); const out=[]; let dups=0;
+  for(const t of all){
+    const k=t.date+"|"+t.amount+"|"+t.direction+"|"+t.payee.toUpperCase();
+    if(seen.has(k)){ dups++; continue; }
+    seen.add(k); out.push(t);
   }
+  out.sort((a,b)=>a.key-b.key);
+  return {rows:out, dups};
+}
 
-  document.getElementById("fileName").textContent=file.name+"  ("+Math.round(file.size/1024)+" KB)";
-  document.getElementById("fileChip").classList.add("show");
-  msg.className="msg"; msg.textContent="Validating file…";
-
-  let rows=[];
-  try{
-    if(srcType==="gpay"){
-      const text=await file.text();
-      const looksLikeGPay=/outer-cell/.test(text) && /Google Pay/.test(text);
-      rows=looksLikeGPay?parseActivityHtml(text):[];
-      if(!rows.length){
-        msg.className="msg err";
-        msg.innerHTML="❌ This isn’t the Google Pay <b>My&nbsp;Activity.html</b> export — no transactions found.";
-        resetFileUI(); return;
-      }
-    }else{
-      const grid=await readWorkbookGrid(file);
-      if(!grid.length){ msg.className="msg err"; msg.textContent="❌ The file has no rows."; resetFileUI(); return; }
-      const res=parseStatementGrid(grid, SRC[srcType].label);
-      if(res.info && res.info.error){
-        msg.className="msg err";
-        msg.innerHTML="❌ Couldn't read this statement automatically: "+res.info.error+
-          " The file needs a row of column names including a date and an amount (or debit/credit).";
-        resetFileUI(); return;
-      }
-      rows=res.rows;
-      if(!rows.length){
-        msg.className="msg err";
-        msg.textContent="❌ No transactions found — a date column was detected but no rows parsed.";
-        resetFileUI(); return;
-      }
-      lastDetect=res.info;                        // stash so parseFlow can note it
-    }
-  }catch(e){ msg.className="msg err"; msg.textContent="Could not read the file: "+(e.message||e); resetFileUI(); return; }
-
-  pickedFile=file; parsedRows=rows;
-  msg.className="msg ok";
-  if(srcType!=="gpay" && lastDetect){
-    const d=lastDetect;
-    msg.innerHTML="✓ Detected automatically — <b>"+rows.length.toLocaleString("en-IN")+"</b> transactions."+
-      "<div class='muted' style='font-size:11.5px;margin-top:4px;font-weight:400'>Columns → date: <b>"+esc(d.mappedDate)+
-      "</b>, description: <b>"+esc(d.mappedDesc)+"</b>, amount: <b>"+esc(d.mappedAmount)+"</b>"+
-      (d.skipped?(" · "+d.skipped+" non-transaction rows skipped"):"")+"</div>";
-  }else{
-    msg.textContent="✓ Valid "+SRC[srcType].label+" — "+rows.length.toLocaleString("en-IN")+" transactions found.";
-  }
+function renderFileList(){
+  const list=document.getElementById("fileList");
+  const info=document.getElementById("combinedInfo");
+  if(!loadedFiles.length){ list.innerHTML=""; info.innerHTML=""; document.getElementById("parseBtn").disabled=true; return; }
+  list.innerHTML=loadedFiles.map((f,i)=>
+    `<div class="fitem"><span class="fic">${SRC[srcType].icon}</span>
+      <div class="fmeta"><div class="fnm">${esc(f.name)}</div>
+        <div class="fsub">${f.rows.length.toLocaleString("en-IN")} transactions · ${Math.round(f.size/1024)} KB</div></div>
+      <span class="frm" data-i="${i}">remove</span></div>`).join("");
+  list.querySelectorAll(".frm").forEach(el=>el.onclick=()=>{ loadedFiles.splice(+el.dataset.i,1); renderFileList(); });
+  const {rows,dups}=combinedRows();
+  info.innerHTML=`Combined: <b>${rows.length.toLocaleString("en-IN")}</b> transactions across <b>${loadedFiles.length}</b> file(s)`+
+    (dups?` · <span class="dupwarn">${dups} duplicate(s) removed</span>`:``);
   document.getElementById("parseBtn").disabled=false;
+}
+
+// Parse a single File → {rows, detect, error}
+async function parseOneFile(file){
+  if(srcType==="gpay"){
+    if(!(/\.html?$/i.test(file.name) || file.type==="text/html")) return {error:"not an .html file"};
+    const text=await file.text();
+    const looksLikeGPay=/outer-cell/.test(text) && /Google Pay/.test(text);
+    const rows=looksLikeGPay?parseActivityHtml(text):[];
+    if(!rows.length) return {error:"not a Google Pay My Activity.html export"};
+    return {rows};
+  }else{
+    if(!/\.(csv|xlsx|xls)$/i.test(file.name)) return {error:"not a .csv/.xlsx file"};
+    const grid=await readWorkbookGrid(file);
+    if(!grid.length) return {error:"file has no rows"};
+    const res=parseStatementGrid(grid, SRC[srcType].label);
+    if(res.info && res.info.error) return {error:res.info.error};
+    if(!res.rows.length) return {error:"no transactions parsed"};
+    return {rows:res.rows, detect:res.info};
+  }
+}
+
+// Handle one or more selected files (multi-select or dropped), accumulating them.
+async function handleFiles(fileList){
+  const msg=document.getElementById("uploadMsg"); msg.className="msg"; msg.textContent="Reading file(s)…";
+  const files=[...fileList]; let added=0, failed=[];
+  for(const file of files){
+    // skip if a file with the same name+size is already loaded
+    if(loadedFiles.some(f=>f.name===file.name && f.size===file.size)){ continue; }
+    try{
+      const r=await parseOneFile(file);
+      if(r.error){ failed.push(file.name+" ("+r.error+")"); continue; }
+      loadedFiles.push({name:file.name,size:file.size,rows:r.rows,source:SRC[srcType].label});
+      if(r.detect) lastDetect=r.detect;
+      added++;
+    }catch(e){ failed.push(file.name+" ("+(e.message||e)+")"); }
+  }
+  document.getElementById("fileInput").value="";   // allow re-selecting same file later
+  renderFileList();
+  if(added && !failed.length){ msg.className="msg ok"; msg.textContent="✓ Added "+added+" file(s)."; }
+  else if(added && failed.length){ msg.className="msg ok"; msg.innerHTML="✓ Added "+added+" file(s). ⚠ Skipped: "+esc(failed.join(", ")); }
+  else{ msg.className="msg err"; msg.innerHTML="❌ Couldn’t add: "+esc(failed.join(", ")||"no valid files"); }
 }
 
 async function parseFlow(){
   const msg=document.getElementById("uploadMsg");
-  if(!parsedRows){ msg.className="msg err"; msg.textContent="Please choose a valid file first."; return; }
-  RAW=parsedRows; META=computeMeta(parsedRows); META.source=SRC[srcType].label;
+  if(!loadedFiles.length){ msg.className="msg err"; msg.textContent="Please add at least one valid file first."; return; }
+  const {rows,dups}=combinedRows();
+  RAW=rows; META=computeMeta(rows);
+  META.source = loadedFiles.length>1
+    ? SRC[srcType].label+" · "+loadedFiles.length+" files combined"+(dups?" ("+dups+" dup removed)":"")
+    : SRC[srcType].label;
   show("screen-dash");
   initDashboard();
 }
@@ -1267,14 +1289,13 @@ window.addEventListener("DOMContentLoaded",()=>{
   // source picker
   document.querySelectorAll(".srccard").forEach(c=>c.onclick=()=>setSource(c.dataset.src));
 
-  // upload
+  // upload (multi-file, accumulating)
   const drop=document.getElementById("drop"), fi=document.getElementById("fileInput");
   drop.onclick=()=>fi.click();
-  fi.onchange=()=>handleFile(fi.files[0]);
+  fi.onchange=()=>{ if(fi.files.length) handleFiles(fi.files); };
   ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hover");}));
   ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hover");}));
-  drop.addEventListener("drop",e=>handleFile(e.dataTransfer.files[0]));
-  document.getElementById("clearFile").onclick=()=>{resetFileUI();document.getElementById("uploadMsg").textContent="";};
+  drop.addEventListener("drop",e=>{ if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
   document.getElementById("parseBtn").onclick=parseFlow;
   document.getElementById("logoutFromUpload").onclick=logout;
 
