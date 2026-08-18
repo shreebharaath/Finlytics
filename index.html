@@ -93,6 +93,16 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   .startmsg b{color:var(--accent)}
   .foot{color:var(--muted);font-size:11px;text-align:center;margin-top:18px;line-height:1.5}
 
+  /* ---- source picker ---- */
+  .srcpick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:6px 0 18px}
+  .srccard{background:var(--card2);border:1.5px solid var(--line);border-radius:12px;padding:14px 8px;
+    cursor:pointer;text-align:center;color:var(--ink);font-family:inherit;transition:.15s}
+  .srccard:hover{border-color:var(--accent)}
+  .srccard.active{border-color:var(--accent);background:#243056;box-shadow:0 0 0 3px rgba(91,140,255,.18)}
+  .srccard .ic{font-size:26px}
+  .srccard .t{font-weight:600;font-size:13.5px;margin-top:4px}
+  .srccard .d{color:var(--muted);font-size:11px;margin-top:2px}
+
   /* ---- dropzone ---- */
   .drop{border:2px dashed var(--line);border-radius:14px;padding:34px 20px;text-align:center;
     cursor:pointer;transition:.15s;background:var(--card2)}
@@ -253,19 +263,31 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <!-- ===================== SCREEN 2: UPLOAD ===================== -->
 <div id="screen-upload" class="screen">
   <div class="center">
-    <div class="card" style="width:520px">
+    <div class="card" style="width:560px">
       <span class="logo"></span>
       <h2>Upload your transactions</h2>
-      <div class="sub">Select the <b>My Activity.html</b> file from your Google&nbsp;Takeout (Google&nbsp;Pay → My&nbsp;Activity).</div>
+      <div class="sub">Choose what you're uploading, then select your file.</div>
+
+      <div class="srcpick" id="srcPick">
+        <button type="button" class="srccard active" data-src="gpay">
+          <div class="ic">📱</div><div class="t">Google&nbsp;Pay</div><div class="d">My Activity.html</div>
+        </button>
+        <button type="button" class="srccard" data-src="bank">
+          <div class="ic">🏦</div><div class="t">Net Banking</div><div class="d">.csv / .xlsx</div>
+        </button>
+        <button type="button" class="srccard" data-src="card">
+          <div class="ic">💳</div><div class="t">Credit Card</div><div class="d">.csv / .xlsx</div>
+        </button>
+      </div>
 
       <div class="drop" id="drop">
         <div class="big">📄⬆️</div>
         <div><b>Click to choose</b> or drag &amp; drop the file here</div>
-        <div class="hint">Accepted: My Activity.html (Google Pay activity export)</div>
+        <div class="hint" id="dropHint">Accepted: My Activity.html (Google Pay activity export)</div>
       </div>
       <input type="file" id="fileInput" accept=".html,.htm,text/html" style="display:none">
 
-      <div style="text-align:center;margin-top:14px"><button type="button" class="helplink" id="howLink">❓ Don’t have the file? How to get it from Google Takeout</button></div>
+      <div style="text-align:center;margin-top:14px"><button type="button" class="helplink" id="howLink">❓ Don’t have the file? How to get it / expected columns</button></div>
 
       <div class="filechip" id="fileChip">
         <span id="fileName"></span><span class="link" id="clearFile">remove</span>
@@ -275,7 +297,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       <div class="msg" id="uploadMsg"></div>
       <button id="logoutFromUpload" class="btn ghost">Sign out</button>
 
-      <div class="foot">Tip: in Google Takeout choose <i>Google Pay</i>; the export contains <i>My Activity.html</i>.</div>
+      <div class="foot" id="uploadFoot">Tip: in Google Takeout choose <i>Google Pay</i>; the export contains <i>My Activity.html</i>.</div>
     </div>
   </div>
 </div>
@@ -407,8 +429,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <!-- ===================== MODAL: HOW TO GET THE FILE ===================== -->
 <div class="modal" id="howModal" role="dialog" aria-modal="true">
   <div class="modalcard">
-    <h2>📥 Get your Google Pay transactions file</h2>
-    <p class="lead">Export it from <b>Google&nbsp;Takeout</b> using the Google account linked to your Google&nbsp;Pay number. It only takes a few minutes.</p>
+    <h2>📥 File formats this app accepts</h2>
+    <p class="lead" style="margin-bottom:10px">This dashboard reads three kinds of files. Pick the matching tile on the upload screen first.</p>
+    <div style="background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13.5px;line-height:1.7">
+      🏦 <b>Net Banking (.csv / .xlsx)</b> — columns: <i>Date, Description, Debit, Credit, Balance</i><br>
+      💳 <b>Credit Card (.csv / .xlsx)</b> — columns: <i>Date, Description, Amount, Type</i> (Type = Debit or Credit)<br>
+      <span class="muted">Dates as MM/DD/YYYY (Excel date cells also work). Most bank/card portals let you export statements in these formats.</span>
+    </div>
+    <p class="lead">For <b>📱 Google Pay</b>, export from <b>Google&nbsp;Takeout</b> using the account linked to your Google&nbsp;Pay number:</p>
     <ol class="steps">
       <li><b>Open Google Takeout</b>
         <div class="sub">Go to <a href="https://takeout.google.com" target="_blank" rel="noopener">takeout.google.com</a> and sign in with the Google account linked to your Google&nbsp;Pay.</div></li>
@@ -439,7 +467,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
    CONFIG  — edit these, then re-run build_webapp.py (or edit the built file)
    ======================================================================= */
 const CONFIG = {
-  OTP_MODE: "emailjs",       // "demo" (shows code on screen) | "emailjs" (real email)
+  OTP_MODE: "demo",          // "demo" (shows code on screen) | "emailjs" (real email)
   OTP_LENGTH: 6,
   OTP_TTL_SECONDS: 300,      // code valid for 5 minutes
   RESEND_COOLDOWN: 30,       // seconds between resends
@@ -515,6 +543,105 @@ function parseActivityHtml(raw){
     t.category=categorize(t);
     out.push(t);
   }
+  out.sort((a,b)=>a.key-b.key);
+  return out;
+}
+
+/* =======================================================================
+   STATEMENT PARSERS  — Net Banking & Credit Card (.csv / .xlsx)
+   Both emit the SAME transaction object shape as parseActivityHtml,
+   so every downstream chart/filter/export works unchanged.
+   ======================================================================= */
+const P2=n=>String(n).padStart(2,"0");
+
+// Read a File (csv or xlsx) into an array of row objects keyed by header.
+async function readWorkbookRows(file){
+  const isCsv=/\.csv$/i.test(file.name);
+  let wb;
+  if(isCsv){ wb=XLSX.read(await file.text(),{type:"string"}); }
+  else{ wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:"array"}); }
+  const sheet=wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet,{defval:"",raw:false});
+}
+
+// Case/space-insensitive header lookup: value for the first header that matches any candidate.
+function pick(row,cands){
+  const keys=Object.keys(row);
+  for(const c of cands){
+    const hit=keys.find(k=>k.trim().toLowerCase()===c.toLowerCase());
+    if(hit!==undefined) return row[hit];
+  }
+  return "";
+}
+const toNum=v=>{ if(v==null) return 0; const n=parseFloat(String(v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?0:Math.round(Math.abs(n)*100)/100; };
+
+// Parse a date. Statements use MM/DD/YYYY; we also tolerate M/D/YYYY, dashes,
+// ISO (YYYY-MM-DD), and Excel serial numbers (how .xlsx often stores dates).
+function fromYMD(yr,mo,da){
+  if(mo<1||mo>12||da<1||da>31) return null;
+  return {date:`${yr}-${P2(mo)}-${P2(da)}`, month:`${yr}-${P2(mo)}`, key:Number(`${yr}${P2(mo)}${P2(da)}000000`)};
+}
+function parseStmtDate(v){
+  if(v===null||v===undefined||v==="") return null;
+  const s=String(v).trim();
+  // Excel serial date (e.g. 45927) → days since 1899-12-30
+  if(/^\d+(\.\d+)?$/.test(s) && Number(s)>=20000 && Number(s)<80000){
+    const d=new Date(Math.round((Number(s)-25569)*86400*1000));
+    if(!isNaN(d)) return fromYMD(d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate());
+  }
+  // ISO YYYY-MM-DD
+  let m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if(m) return fromYMD(+m[1],+m[2],+m[3]);
+  // MM/DD/YYYY (statement default) — also tolerates dashes
+  m=/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/.exec(s);
+  if(m){ let yr=+m[3]; if(yr<100) yr+=2000; return fromYMD(yr,+m[1],+m[2]); }
+  return null;
+}
+
+// NET BANKING: Date, Description, Debit, Credit, Balance
+function parseBankStatement(rows){
+  const out=[];
+  rows.forEach(r=>{
+    const d=parseStmtDate(pick(r,["Date","Txn Date","Transaction Date","Value Date"]));
+    if(!d) return;
+    const debit=toNum(pick(r,["Debit","Withdrawal","Withdrawal Amt","Dr"]));
+    const credit=toNum(pick(r,["Credit","Deposit","Deposit Amt","Cr"]));
+    const desc=cleanText(String(pick(r,["Description","Narration","Details","Transaction Details","Particulars"])||""));
+    if(debit===0 && credit===0) return;                 // skip blank/opening-balance rows
+    const isExp=debit>0;
+    const t={key:d.key,date:d.date,time:"",month:d.month,
+      action:isExp?"Debit":"Credit",direction:isExp?"Expense":"Income",
+      amount:isExp?debit:credit,payee:desc||NO_NAME,
+      method:"Bank account",status:"Completed",
+      ref:cleanText(String(pick(r,["Ref No","Reference","Cheque No","Ref"])||"")),
+      balance:pick(r,["Balance","Closing Balance","Running Balance"])||""};
+    t.category=categorize(t);
+    out.push(t);
+  });
+  out.sort((a,b)=>a.key-b.key);
+  return out;
+}
+
+// CREDIT CARD: Date, Description, Amount, Type (Debit/Credit)
+function parseCardStatement(rows){
+  const out=[];
+  rows.forEach(r=>{
+    const d=parseStmtDate(pick(r,["Date","Txn Date","Transaction Date"]));
+    if(!d) return;
+    const amount=toNum(pick(r,["Amount","Amt","Transaction Amount"]));
+    if(amount===0) return;
+    const typeRaw=String(pick(r,["Type","Dr/Cr","Debit/Credit","Transaction Type"])||"").trim().toLowerCase();
+    // On a card, a "Debit" is a purchase (spend); "Credit" is a payment/refund (money in).
+    const isExp=!/^cr|credit|payment|refund|received/.test(typeRaw);
+    const desc=cleanText(String(pick(r,["Description","Merchant","Details","Narration","Particulars"])||""));
+    const t={key:d.key,date:d.date,time:"",month:d.month,
+      action:isExp?"Debit":"Credit",direction:isExp?"Expense":"Income",
+      amount,payee:desc||NO_NAME,
+      method:"Credit card",status:"Completed",
+      ref:cleanText(String(pick(r,["Ref No","Reference","Ref"])||""))};
+    t.category=categorize(t);
+    out.push(t);
+  });
   out.sort((a,b)=>a.key-b.key);
   return out;
 }
@@ -780,6 +907,7 @@ function initDashboard(){
   drawer.addEventListener("click",e=>{if(e.target===drawer)closeDrawer();});
   document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDrawer();});
   document.getElementById("subtitle").innerHTML=
+    (META.source?`<b>${META.source}</b> · `:``)+
     `<b>${META.total}</b> transactions · ${META.from} → ${META.to} · `+
     `lifetime spend <b style="color:var(--red)">${INR(META.totalSpent)}</b> · received <b style="color:var(--green)">${INR(META.totalIncome)}</b>`;
   renderAll();
@@ -864,7 +992,27 @@ function logout(){sessionStorage.removeItem("gp_auth");RAW=[];META={};location.r
 /* =======================================================================
    FILE UPLOAD + PARSE
    ======================================================================= */
-let pickedFile=null, parsedRows=null;
+let pickedFile=null, parsedRows=null, srcType="gpay";
+const SRC={
+  gpay:{accept:".html,.htm,text/html", hint:"Accepted: My Activity.html (Google Pay activity export)",
+        foot:"Tip: in Google Takeout choose <i>Google Pay</i>; the export contains <i>My Activity.html</i>.",
+        label:"Google Pay"},
+  bank:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns: Date, Description, Debit, Credit, Balance",
+        foot:"Expected columns: <i>Date, Description, Debit, Credit, Balance</i> · dates as MM/DD/YYYY.",
+        label:"Net Banking statement"},
+  card:{accept:".csv,.xlsx,.xls", hint:"Accepted: .csv or .xlsx — columns: Date, Description, Amount, Type (Debit/Credit)",
+        foot:"Expected columns: <i>Date, Description, Amount, Type</i> (Type = Debit or Credit) · dates as MM/DD/YYYY.",
+        label:"Credit Card statement"}
+};
+function setSource(src){
+  srcType=src;
+  document.querySelectorAll(".srccard").forEach(c=>c.classList.toggle("active",c.dataset.src===src));
+  document.getElementById("fileInput").accept=SRC[src].accept;
+  document.getElementById("dropHint").textContent=SRC[src].hint;
+  document.getElementById("uploadFoot").innerHTML=SRC[src].foot;
+  resetFileUI();
+  document.getElementById("uploadMsg").textContent="";
+}
 
 function resetFileUI(){
   pickedFile=null; parsedRows=null;
@@ -873,48 +1021,76 @@ function resetFileUI(){
   document.getElementById("parseBtn").disabled=true;
 }
 
-// Validates on selection: must be an .html file AND a real Google Pay activity export.
+// Validates on selection and parses according to the chosen source type.
 async function handleFile(file){
   const msg=document.getElementById("uploadMsg"); msg.className="msg"; msg.textContent="";
   resetFileUI();
   if(!file) return;
 
-  // 1) extension/type gate — blocks pdf, csv, zip, images, etc.
-  const okType = /\.html?$/i.test(file.name) || file.type==="text/html";
-  if(!okType){
-    msg.className="msg err";
-    msg.innerHTML="❌ Only the Google Pay <b>My&nbsp;Activity.html</b> file is accepted — that file type isn’t allowed. Please choose a <b>.html</b> file.";
-    return;
+  // 1) extension gate per source
+  if(srcType==="gpay"){
+    if(!(/\.html?$/i.test(file.name) || file.type==="text/html")){
+      msg.className="msg err";
+      msg.innerHTML="❌ For Google Pay, choose the <b>My&nbsp;Activity.html</b> file.";
+      return;
+    }
+  }else{
+    if(!/\.(csv|xlsx|xls)$/i.test(file.name)){
+      msg.className="msg err";
+      msg.innerHTML="❌ Please choose a <b>.csv</b> or <b>.xlsx</b> statement file.";
+      return;
+    }
   }
 
-  // show chip + validate contents
   document.getElementById("fileName").textContent=file.name+"  ("+Math.round(file.size/1024)+" KB)";
   document.getElementById("fileChip").classList.add("show");
   msg.className="msg"; msg.textContent="Validating file…";
 
-  let text;
-  try{ text=await file.text(); }
-  catch(e){ msg.className="msg err"; msg.textContent="Could not read the file."; resetFileUI(); return; }
-
-  // 2) content gate — must be a Google Pay "My Activity" export with transactions
-  const looksLikeGPay = /outer-cell/.test(text) && /Google Pay/.test(text);
-  const rows = looksLikeGPay ? parseActivityHtml(text) : [];
-  if(!rows.length){
-    msg.className="msg err";
-    msg.innerHTML="❌ This isn’t the Google Pay <b>My&nbsp;Activity.html</b> export — no transactions were found. Use the “How to get it from Google Takeout” link below.";
-    resetFileUI(); return;
-  }
+  let rows=[];
+  try{
+    if(srcType==="gpay"){
+      const text=await file.text();
+      const looksLikeGPay=/outer-cell/.test(text) && /Google Pay/.test(text);
+      rows=looksLikeGPay?parseActivityHtml(text):[];
+      if(!rows.length){
+        msg.className="msg err";
+        msg.innerHTML="❌ This isn’t the Google Pay <b>My&nbsp;Activity.html</b> export — no transactions found.";
+        resetFileUI(); return;
+      }
+    }else{
+      const raw=await readWorkbookRows(file);
+      if(!raw.length){ msg.className="msg err"; msg.textContent="❌ The file has no data rows."; resetFileUI(); return; }
+      // verify required columns exist
+      const cols=Object.keys(raw[0]).map(k=>k.trim().toLowerCase());
+      const need = srcType==="bank"
+        ? {ok:cols.includes("date") && (cols.includes("debit")||cols.includes("credit")||cols.includes("withdrawal")||cols.includes("deposit")),
+           want:"Date, Description, Debit, Credit, Balance"}
+        : {ok:cols.includes("date") && cols.includes("amount") && (cols.includes("type")||cols.includes("dr/cr")),
+           want:"Date, Description, Amount, Type (Debit/Credit)"};
+      if(!need.ok){
+        msg.className="msg err";
+        msg.innerHTML="❌ Missing expected columns. This dashboard needs: <b>"+need.want+"</b>.";
+        resetFileUI(); return;
+      }
+      rows = srcType==="bank" ? parseBankStatement(raw) : parseCardStatement(raw);
+      if(!rows.length){
+        msg.className="msg err";
+        msg.textContent="❌ No usable transactions found (check the Date and amount columns).";
+        resetFileUI(); return;
+      }
+    }
+  }catch(e){ msg.className="msg err"; msg.textContent="Could not read the file: "+(e.message||e); resetFileUI(); return; }
 
   pickedFile=file; parsedRows=rows;
   msg.className="msg ok";
-  msg.textContent="✓ Valid Google Pay file — "+rows.length.toLocaleString("en-IN")+" transactions found.";
+  msg.textContent="✓ Valid "+SRC[srcType].label+" — "+rows.length.toLocaleString("en-IN")+" transactions found.";
   document.getElementById("parseBtn").disabled=false;
 }
 
 async function parseFlow(){
   const msg=document.getElementById("uploadMsg");
-  if(!parsedRows){ msg.className="msg err"; msg.textContent="Please choose a valid My Activity.html file first."; return; }
-  RAW=parsedRows; META=computeMeta(parsedRows);
+  if(!parsedRows){ msg.className="msg err"; msg.textContent="Please choose a valid file first."; return; }
+  RAW=parsedRows; META=computeMeta(parsedRows); META.source=SRC[srcType].label;
   show("screen-dash");
   initDashboard();
 }
@@ -940,6 +1116,9 @@ window.addEventListener("DOMContentLoaded",()=>{
     b.addEventListener("paste",e=>{const d=(e.clipboardData.getData("text")||"").replace(/\D/g,"").slice(0,6);
       if(d){e.preventDefault();d.split("").forEach((ch,j)=>{if(boxes[j])boxes[j].value=ch;});boxes[Math.min(d.length,5)].focus();}});
   });
+
+  // source picker
+  document.querySelectorAll(".srccard").forEach(c=>c.onclick=()=>setSource(c.dataset.src));
 
   // upload
   const drop=document.getElementById("drop"), fi=document.getElementById("fileInput");
