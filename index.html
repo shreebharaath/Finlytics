@@ -461,7 +461,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     </div>
 
     <div class="grid">
-      <div class="panel"><h3>Top 15 Merchants / Payees by Spend <span class="muted" style="font-size:11px">· click a bar for merchant profile</span></h3><div class="chartbox" style="height:380px"><canvas id="merchChart"></canvas></div></div>
+      <div class="panel"><h3>Top 15 Merchants / Payees by Spend <span class="muted" style="font-size:11px">· click a bar for merchant profile</span>
+        <label class="excltoggle" style="float:right;font-size:11px;font-weight:400;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:5px">
+          <input type="checkbox" id="exclUnnamed" style="cursor:pointer"> Hide unnamed transfers</label>
+      </h3><div class="chartbox" style="height:380px"><canvas id="merchChart"></canvas></div></div>
       <div class="panel">
         <h3>📈 Month-over-Month by Category <span class="muted" style="font-size:11px">· latest vs previous month</span></h3>
         <div class="tablewrap" style="max-height:380px"><table id="momTable"></table></div>
@@ -837,7 +840,7 @@ function computeMeta(rows){
 let RAW=[], META={};
 const INR=n=>"₹"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:0});
 const INR2=n=>"₹"+Number(n||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
-let state={from:null,to:null,type:"All",cat:"All",status:"successful",search:"",amtRange:"All",sortKey:"date",sortDir:-1,page:1,pageSize:50};
+let state={from:null,to:null,type:"All",cat:"All",status:"successful",search:"",amtRange:"All",exclUnnamed:false,sortKey:"date",sortDir:-1,page:1,pageSize:50};
 let charts={};
 // Persistent merchant→category labels. Stored ONLY on this device (localStorage),
 // never uploaded. Holds preferences (merchant name → category), not any financial data.
@@ -965,7 +968,9 @@ function renderCatChart(rows){
   tbl.querySelectorAll("tr.clickable").forEach(tr=>tr.onclick=()=>openCategoryDrawer(tr.dataset.cat));
 }
 function renderMerchChart(rows){
-  const exp=rows.filter(t=>t.direction==="Expense");
+  let exp=rows.filter(t=>t.direction==="Expense");
+  const hadUnnamed = exp.some(t=>t.payee===NO_NAME);
+  if(state.exclUnnamed) exp=exp.filter(t=>t.payee!==NO_NAME);
   const entries=Object.entries(groupSum(exp,"payee")).sort((a,b)=>b[1]-a[1]).slice(0,15).reverse();
   charts.merch&&charts.merch.destroy();
   charts.merch=new Chart(document.getElementById("merchChart"),{type:"bar",
@@ -973,6 +978,9 @@ function renderMerchChart(rows){
     options:{indexAxis:"y",maintainAspectRatio:false,onClick:(e,el)=>{if(el.length)openMerchantDrawer(entries[el[0].index][0]);},
       scales:{x:{ticks:{color:"#9aa3c0",callback:v=>INR(v)},grid:{color:"#2a3150"}},
       y:{ticks:{color:"#9aa3c0",font:{size:11}},grid:{display:false}}},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>INR(c.raw)}}}}});
+  // keep the checkbox in sync and only show it when there are unnamed transfers to hide
+  const box=document.getElementById("exclUnnamed");
+  if(box){ box.checked=state.exclUnnamed; box.closest(".excltoggle").style.display = hadUnnamed?"inline-flex":"none"; }
 }
 function renderTable(rows){
   const sorted=[...rows].sort((a,b)=>{let x=a[state.sortKey],y=b[state.sortKey];
@@ -1169,7 +1177,7 @@ function initDashboard(){
   const ms=months();
   const optHtml=ms.map(m=>`<option value="${m}">${m}</option>`).join("");
   fFrom.innerHTML=optHtml; fTo.innerHTML=optHtml; fFrom.value=ms[0]; fTo.value=ms[ms.length-1];
-  state={from:ms[0],to:ms[ms.length-1],type:"All",cat:"All",status:"successful",search:"",amtRange:"All",sortKey:"date",sortDir:-1,page:1,pageSize:50};
+  state={from:ms[0],to:ms[ms.length-1],type:"All",cat:"All",status:"successful",search:"",amtRange:"All",exclUnnamed:false,sortKey:"date",sortDir:-1,page:1,pageSize:50};
   fCat.innerHTML=`<option value="All">All categories</option>`+categories().map(c=>`<option>${c}</option>`).join("");
   fStatus.value="successful";
   fFrom.onchange=e=>{state.from=e.target.value;state.page=1;renderAll();};
@@ -1179,6 +1187,8 @@ function initDashboard(){
   fStatus.onchange=e=>{state.status=e.target.value;state.page=1;renderAll();};
   fSearch.oninput=e=>{state.search=e.target.value;state.page=1;renderAll();};
   fAmtRange.onchange=e=>{state.amtRange=e.target.value;state.page=1;renderAll();};
+  const exclBox=document.getElementById("exclUnnamed");
+  if(exclBox) exclBox.onchange=e=>{state.exclUnnamed=e.target.checked;renderMerchChart(applyFilters());};
   btnReset.onclick=()=>{fFrom.value=ms[0];fTo.value=ms[ms.length-1];fType.value="All";fCat.value="All";fStatus.value="successful";fSearch.value="";fAmtRange.value="All";
     state={...state,from:ms[0],to:ms[ms.length-1],type:"All",cat:"All",status:"successful",search:"",amtRange:"All",page:1};renderAll();};
   btnXlsx.onclick=exportXlsx; btnCsv.onclick=exportCsv;
@@ -1320,7 +1330,11 @@ function combinedRows(){
   const groups=new Map();        // key -> {kept, dupes:[...]}
   const out=[]; let dups=0;
   for(const t of all){
-    const k=t.date+"|"+t.amount+"|"+t.direction+"|"+t.payee.toUpperCase();
+    // Include the timestamp when we have one (Google Pay records exact times), so two real
+    // payments to the same merchant for the same amount on the same day are NOT merged.
+    // Statements have no time (t.time=""), so those fall back to a date-level match as before.
+    const timePart = t.time ? "|"+t.time : "";
+    const k=t.date+timePart+"|"+t.amount+"|"+t.direction+"|"+t.payee.toUpperCase();
     if(firstSeen.has(k)){
       dups++;
       if(!groups.has(k)) groups.set(k,{kept:firstSeen.get(k),dupes:[]});
@@ -1373,7 +1387,7 @@ function showDuplicates(){
     });
   });
   html+=`</tbody></table></div>`;
-  html+=`<p class="muted" style="font-size:12px;margin-top:12px">Matched on the same <b>date, amount, direction and merchant</b>. If two of these were actually separate real payments (e.g. you paid the same shop the same amount twice on one day), tell us — we can turn duplicate-removal off.</p>`;
+  html+=`<p class="muted" style="font-size:12px;margin-top:12px">Matched on the same <b>date, time, amount, direction and merchant</b> (statements without a timestamp match on date). Two real payments to the same shop at different times of day are kept as separate transactions.</p>`;
   body.innerHTML=html;
   modal.classList.add("show");
 }
