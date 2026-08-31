@@ -191,7 +191,68 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   .pager button{background:var(--card2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 12px;cursor:pointer}
   .muted{color:var(--muted)}
   footer{padding:18px 28px;color:var(--muted);font-size:12px;text-align:center}
-  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  @media(max-width:900px){
+    .grid{grid-template-columns:1fr}
+    .wrap{padding:16px 16px}
+    header.app,.subbar{padding-left:16px;padding-right:16px}
+    footer{padding-left:16px;padding-right:16px}
+  }
+
+  /* ---- phones (<=560px) ---- */
+  @media(max-width:560px){
+    .wrap{padding:12px 12px}
+    header.app{padding:12px 12px;gap:8px}
+    header.app h1{font-size:17px;width:100%}
+    header.app .who{width:100%;order:3}
+    header.app .acts{margin-left:0;width:100%;flex-wrap:wrap}
+    header.app .acts .sbtn{flex:1;min-width:0;text-align:center;font-size:12px;padding:8px 6px}
+    .subbar{padding:8px 12px;font-size:11px;line-height:1.5}
+
+    /* toolbar: each control full width, stacked */
+    .toolbar{padding:12px;gap:10px}
+    .toolbar .field{width:100%}
+    .toolbar .field select,.toolbar .field input{width:100%;min-width:0;box-sizing:border-box}
+    .toolbar .spacer{display:none}
+    .toolbar #btnReset{width:100%}
+    .toolbar .field:last-child>div{width:100%}
+    .toolbar #btnXlsx,.toolbar #btnCsv{flex:1}
+
+    /* KPI cards: 2-up */
+    .cards{grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+    .kpi{padding:12px}
+    .kpi .value{font-size:19px}
+    .kpi .label,.kpi .meta{font-size:11px}
+
+    .panel{padding:12px;border-radius:12px}
+    .panel h3{font-size:14px;margin-bottom:10px}
+    .panel .chartbox{height:260px}
+
+    /* transaction table -> card rows */
+    #txnTable thead{display:none}
+    #txnTable,#txnTable tbody,#txnTable tr,#txnTable td{display:block;width:100%}
+    #txnTable tr{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;padding:8px 10px;background:var(--card2)}
+    #txnTable td{border:none;white-space:normal;padding:3px 0;display:flex;justify-content:space-between;gap:12px;text-align:right}
+    #txnTable td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left;flex:0 0 auto}
+    #txnTable td.amt{font-size:15px;font-weight:600}
+    .tablewrap{max-height:none;overflow:visible}
+    #catTable .tablewrap,#momTable{overflow:auto}
+
+    /* drawer: full width, less padding */
+    .drawerpanel{width:100%;max-width:100%;padding:16px 14px}
+    .ministats{grid-template-columns:1fr 1fr}
+    .drawer{align-items:stretch}
+
+    /* modals: roomier on small screens */
+    .modalcard{padding:18px 16px;border-radius:14px;max-height:90vh;overflow:auto}
+
+    /* source picker stays 3-up but tighter */
+    .srcpick{gap:6px}
+    .srccard{padding:10px 4px}
+    .srccard .t{font-size:12px}
+    .srccard .d{font-size:10px}
+
+    .card{padding:22px 18px}
+  }
 
   /* ---- analysis: clickable rows/bars, detail drawer, deltas ---- */
   .clickable{cursor:pointer;transition:background .12s}
@@ -219,6 +280,17 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     padding:8px 14px;font-weight:600;cursor:pointer;font-size:13px}
   .recat{display:flex;gap:6px;align-items:center;margin-top:4px}
   .recat select{background:var(--card2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 6px;font-size:12px}
+  /* top spending areas callout (neutral) */
+  .toparea{background:rgba(91,140,255,.08);border:1px solid rgba(91,140,255,.4);border-radius:12px;
+    padding:14px 16px;margin-bottom:18px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .toparea .big{font-size:24px;line-height:1}
+  .toparea b{color:var(--accent)}
+  .areachip{display:inline-block;background:var(--card2);border:1px solid rgba(91,140,255,.5);border-radius:20px;
+    padding:3px 10px;font-size:12px;margin:4px 6px 0 0;cursor:pointer}
+  .areachip:hover{border-color:var(--accent);background:#243056}
+  .areachip b{color:var(--ink)}
+  .areapill{font-size:10px;color:var(--accent);border:1px solid rgba(91,140,255,.5);border-radius:20px;padding:1px 7px;margin-left:6px;vertical-align:middle}
+  tr.toparea-row td{background:rgba(91,140,255,.06)}
 </style>
 </head>
 <body>
@@ -343,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           <option value="Cancelled">Cancelled</option>
         </select>
       </div>
-      <div class="field"><label>Search merchant</label><input id="fSearch" placeholder="e.g. GROWW, hospital…"></div>
+      <div class="field"><label>🔍 Search</label><input id="fSearch" placeholder="merchant, amount, date… e.g. swiggy, 1500"></div>
       <div class="field"><label>💰 Amount Range</label>
         <select id="fAmtRange">
           <option value="All">All amounts</option>
@@ -364,6 +436,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     </div>
 
     <div id="spotlightWrap"></div>
+    <div id="topAreasWrap"></div>
     <div class="cards" id="kpis"></div>
 
     <div class="grid">
@@ -801,7 +874,13 @@ function applyFilters(){
     if(state.to && t.month>state.to) return false;
     if(state.type!=="All" && t.direction!==state.type) return false;
     if(state.cat!=="All" && effCat(t)!==state.cat) return false;
-    if(s && !(t.payee.toUpperCase().includes(s)||effCat(t).toUpperCase().includes(s))) return false;
+    if(s){
+      const hay=(t.payee+" "+effCat(t)+" "+t.method+" "+(t.ref||"")+" "+t.date+" "+t.action).toUpperCase();
+      const amtStr=String(t.amount);
+      const sNum=s.replace(/[₹,.\s]/g,"");
+      const amtMatch = sNum!=="" && /^\d+$/.test(sNum) && amtStr.includes(sNum);
+      if(!(hay.includes(s) || amtMatch)) return false;
+    }
     if(state.amtRange==="lt500"    && t.amount>=500)    return false;
     if(state.amtRange==="500to5000"  &&(t.amount<500  ||t.amount>5000))  return false;
     if(state.amtRange==="5000to50000"&&(t.amount<5000 ||t.amount>50000)) return false;
@@ -846,6 +925,27 @@ function renderSpotlight(rows){
     <button class="fixbtn" id="fixUncat">Review &amp; label →</button></div>`;
   document.getElementById("fixUncat").onclick=()=>openCategoryDrawer("Others / Uncategorized");
 }
+// Neutral "top spending areas" callout: categories that each exceed the threshold of total spend.
+const TOP_AREA_PCT=8;
+function renderTopAreas(rows){
+  const wrap=document.getElementById("topAreasWrap");
+  if(!wrap) return;
+  const exp=rows.filter(t=>t.direction==="Expense");
+  const spent=exp.reduce((a,t)=>a+t.amount,0);
+  if(!spent){ wrap.innerHTML=""; return; }
+  const entries=Object.entries(groupSumCat(exp))
+    .map(([c,v])=>({c,v,pct:100*v/spent}))
+    .filter(e=>e.pct>=TOP_AREA_PCT && e.c!=="Others / Uncategorized")
+    .sort((a,b)=>b.v-a.v);
+  if(!entries.length){ wrap.innerHTML=""; return; }
+  const share=entries.reduce((a,e)=>a+e.pct,0);
+  const chips=entries.map(e=>`<span class="areachip" data-cat="${esc(e.c)}">${esc(e.c)} · <b>${e.pct.toFixed(0)}%</b></span>`).join("");
+  wrap.innerHTML=`<div class="toparea"><span class="big">📊</span>
+    <div><b>Top spending areas</b> — these categories each make up over ${TOP_AREA_PCT}% of your spend, together
+    <b>${share.toFixed(0)}%</b> of the total. ${chips}
+    <div class="muted" style="font-size:11px;margin-top:6px">Tap a category to see the transactions behind it.</div></div></div>`;
+  wrap.querySelectorAll(".areachip").forEach(el=>el.onclick=()=>openCategoryDrawer(el.dataset.cat));
+}
 function renderCatChart(rows){
   const exp=rows.filter(t=>t.direction==="Expense");
   const entries=Object.entries(groupSumCat(exp)).sort((a,b)=>b[1]-a[1]);
@@ -858,7 +958,9 @@ function renderCatChart(rows){
   const total=entries.reduce((a,e)=>a+e[1],0)||1;
   let html="<thead><tr><th>Category</th><th class='amt'>Spend</th><th class='amt'>%</th><th class='amt'>Txns</th></tr></thead><tbody>";
   entries.forEach((e,i)=>{const cnt=exp.filter(t=>effCat(t)===e[0]).length;
-    html+=`<tr class="clickable" data-cat="${esc(e[0])}"><td><span class="tag" style="border-color:${PALETTE[i%16]}">${esc(e[0])}</span></td><td class="amt">${INR(e[1])}</td><td class="amt">${(100*e[1]/total).toFixed(1)}%</td><td class="amt">${cnt}</td></tr>`;});
+    const pct=100*e[1]/total;
+    const big = pct>=TOP_AREA_PCT && e[0]!=="Others / Uncategorized";
+    html+=`<tr class="clickable${big?" toparea-row":""}" data-cat="${esc(e[0])}"><td><span class="tag" style="border-color:${PALETTE[i%16]}">${esc(e[0])}</span>${big?' <span class="areapill">top area</span>':''}</td><td class="amt">${INR(e[1])}</td><td class="amt">${pct.toFixed(1)}%</td><td class="amt">${cnt}</td></tr>`;});
   const tbl=document.getElementById("catTable"); tbl.innerHTML=html+"</tbody>";
   tbl.querySelectorAll("tr.clickable").forEach(tr=>tr.onclick=()=>openCategoryDrawer(tr.dataset.cat));
 }
@@ -879,15 +981,18 @@ function renderTable(rows){
   if(state.page>pages)state.page=pages;
   const start=(state.page-1)*state.pageSize, slice=sorted.slice(start,start+state.pageSize);
   document.querySelector("#txnTable tbody").innerHTML=slice.map(t=>
-    `<tr><td>${t.date}</td><td class="muted">${t.time}</td><td class="dir-${t.direction}">${t.action}</td>`+
-    `<td><span class="clickpayee" data-p="${esc(t.payee)}" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px">${esc(t.payee)}</span></td><td><span class="tag">${esc(effCat(t))}</span></td>`+
-    `<td><span class="st st-${t.status}">${t.status}</span></td><td class="muted">${esc(t.method)}</td>`+
-    `<td class="amt dir-${t.direction}">${t.direction==="Expense"?"−":"+"}${INR2(t.amount)}</td></tr>`).join("");
+    `<tr><td data-label="Date">${t.date}</td><td data-label="Time" class="muted">${t.time}</td><td data-label="Type" class="dir-${t.direction}">${t.action}</td>`+
+    `<td data-label="Merchant"><span class="clickpayee" data-p="${esc(t.payee)}" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px">${esc(t.payee)}</span></td><td data-label="Category"><span class="tag">${esc(effCat(t))}</span></td>`+
+    `<td data-label="Status"><span class="st st-${t.status}">${t.status}</span></td><td data-label="Method" class="muted">${esc(t.method)}</td>`+
+    `<td data-label="Amount" class="amt dir-${t.direction}">${t.direction==="Expense"?"−":"+"}${INR2(t.amount)}</td></tr>`).join("");
   document.querySelectorAll("#txnTable .clickpayee").forEach(el=>el.onclick=()=>openMerchantDrawer(el.dataset.p));
-  document.getElementById("txnCount").textContent=`(${total.toLocaleString("en-IN")})`;
+  const q=state.search.trim();
+  document.getElementById("txnCount").textContent = q
+    ? `(${total.toLocaleString("en-IN")} matching “${q}”)`
+    : `(${total.toLocaleString("en-IN")})`;
   document.getElementById("pageInfo").textContent=`Page ${state.page} / ${pages}`;
 }
-function renderAll(){const r=applyFilters();renderSpotlight(r);renderKPIs(r);renderCatChart(r);renderMerchChart(r);renderMoM(r);renderTable(r);}
+function renderAll(){const r=applyFilters();renderSpotlight(r);renderTopAreas(r);renderKPIs(r);renderCatChart(r);renderMerchChart(r);renderMoM(r);renderTable(r);}
 
 /* =======================================================================
    ANALYSIS: Month-over-Month category deltas
