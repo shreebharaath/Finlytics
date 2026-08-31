@@ -439,8 +439,18 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   </div>
 </div>
 
-<!-- ===================== MODAL: HOW TO GET THE FILE ===================== -->
-<div class="modal" id="howModal" role="dialog" aria-modal="true">
+<!-- ===================== MODAL: DUPLICATES REMOVED ===================== -->
+<div class="modal" id="dupModal" role="dialog" aria-modal="true">
+  <div class="modalcard" style="max-width:760px">
+    <h2>🔁 Duplicates that were removed</h2>
+    <div id="dupBody"></div>
+    <div class="modalactions">
+      <button class="btn ghost" id="dupClose" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: HOW TO GET THE FILE ===================== --><div class="modal" id="howModal" role="dialog" aria-modal="true">
   <div class="modalcard">
     <h2>📥 File formats this app accepts</h2>
     <p class="lead" style="margin-bottom:10px">This dashboard reads three kinds of files. Pick the matching tile on the upload screen first.</p>
@@ -869,9 +879,10 @@ function renderTable(rows){
   const start=(state.page-1)*state.pageSize, slice=sorted.slice(start,start+state.pageSize);
   document.querySelector("#txnTable tbody").innerHTML=slice.map(t=>
     `<tr><td>${t.date}</td><td class="muted">${t.time}</td><td class="dir-${t.direction}">${t.action}</td>`+
-    `<td>${esc(t.payee)}</td><td><span class="tag">${esc(effCat(t))}</span></td>`+
+    `<td><span class="clickpayee" data-p="${esc(t.payee)}" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px">${esc(t.payee)}</span></td><td><span class="tag">${esc(effCat(t))}</span></td>`+
     `<td><span class="st st-${t.status}">${t.status}</span></td><td class="muted">${esc(t.method)}</td>`+
     `<td class="amt dir-${t.direction}">${t.direction==="Expense"?"−":"+"}${INR2(t.amount)}</td></tr>`).join("");
+  document.querySelectorAll("#txnTable .clickpayee").forEach(el=>el.onclick=()=>openMerchantDrawer(el.dataset.p));
   document.getElementById("txnCount").textContent=`(${total.toLocaleString("en-IN")})`;
   document.getElementById("pageInfo").textContent=`Page ${state.page} / ${pages}`;
 }
@@ -923,7 +934,9 @@ function miniStat(l,v){return `<div class="ministat"><div class="l">${l}</div><d
 function drawerTxnTable(txns){
   const sorted=[...txns].sort((a,b)=>b.key-a.key).slice(0,200);
   let html="<thead><tr><th>Date</th><th>Merchant / Payee</th><th class='amt'>Amount</th></tr></thead><tbody>";
-  sorted.forEach(t=>{html+=`<tr><td>${t.date} <span class="muted">${t.time}</span></td><td>${esc(t.payee)}</td><td class="amt dir-Expense">−${INR2(t.amount)}</td></tr>`;});
+  sorted.forEach(t=>{const inc=t.direction==="Income";
+    html+=`<tr><td>${t.date} <span class="muted">${t.time}</span></td><td>${esc(t.payee)}</td>`+
+    `<td class="amt dir-${t.direction}">${inc?"+":"−"}${INR2(t.amount)}</td></tr>`;});
   return html+"</tbody>";
 }
 function showSavedLabels(){
@@ -963,7 +976,12 @@ function showSavedLabels(){
   openDrawer();
 }
 function openCategoryDrawer(cat){
-  const rows=applyFilters().filter(t=>t.direction==="Expense" && effCat(t)===cat);
+  const inCat=applyFilters().filter(t=>effCat(t)===cat);
+  const exp=inCat.filter(t=>t.direction==="Expense");
+  const inc=inCat.filter(t=>t.direction==="Income");
+  // A category is usually spend, but income categories (e.g. money received) exist too.
+  const isIncomeCat = inc.length>exp.length;
+  const rows = isIncomeCat ? inc : (exp.length?exp:inCat);
   const total=rows.reduce((a,t)=>a+t.amount,0);
   const cnt=rows.length, avg=cnt?total/cnt:0;
   const ms=[...new Set(rows.map(t=>t.month).filter(Boolean))];
@@ -971,32 +989,38 @@ function openCategoryDrawer(cat){
   const merchants=Object.entries(groupSum(rows,"payee")).sort((a,b)=>b[1]-a[1]);
   document.getElementById("drawerTitle").innerHTML=`📂 ${esc(cat)}`;
   document.getElementById("drawerSub").textContent=`Category deep-dive · reflects all active filters`;
+  const lead=isIncomeCat?"Total Received":"Total Spend";
   document.getElementById("drawerStats").innerHTML=
-    miniStat("Total Spend",INR(total))+miniStat("Transactions",cnt.toLocaleString("en-IN"))+
+    miniStat(lead,INR(total))+miniStat("Transactions",cnt.toLocaleString("en-IN"))+
     miniStat("Avg / Txn",INR(avg))+miniStat("Avg / Month",INR(perMonth))+miniStat("Merchants",merchants.length);
-  let ext=`<h3 style="font-size:14px;margin:0 0 8px">Top merchants in this category</h3><div class="tablewrap" style="max-height:200px"><table><tbody>`;
+  let ext=`<h3 style="font-size:14px;margin:0 0 8px">Top ${isIncomeCat?"sources":"merchants"} in this category</h3><div class="tablewrap" style="max-height:200px"><table><tbody>`;
   merchants.slice(0,15).forEach(([p,v])=>{ext+=`<tr class="clickable" data-p="${esc(p)}"><td>${esc(p)}</td><td class="amt">${INR(v)}</td></tr>`;});
   ext+="</tbody></table></div>";
   const extEl=document.getElementById("drawerExtra"); extEl.innerHTML=ext;
   extEl.querySelectorAll("tr.clickable").forEach(tr=>tr.onclick=()=>openMerchantDrawer(tr.dataset.p));
   document.getElementById("drawerTable").innerHTML=drawerTxnTable(rows);
   document.getElementById("drawerChart").style.display="";
-  openDrawer(); drawerLineChart(rows,"#5b8cff");
+  openDrawer(); drawerLineChart(rows, isIncomeCat?"#28c76f":"#5b8cff");
 }
 function openMerchantDrawer(payee){
   const all=applyFilters().filter(t=>t.payee===payee);
   const exp=all.filter(t=>t.direction==="Expense");
-  const total=exp.reduce((a,t)=>a+t.amount,0), cnt=exp.length, avg=cnt?total/cnt:0;
-  const amounts=exp.map(t=>t.amount);
+  const inc=all.filter(t=>t.direction==="Income");
+  const spent=exp.reduce((a,t)=>a+t.amount,0), received=inc.reduce((a,t)=>a+t.amount,0);
   const first=all.map(t=>t.date).filter(Boolean).sort()[0]||"—";
   const last=all.map(t=>t.date).filter(Boolean).sort().slice(-1)[0]||"—";
-  const cats=[...new Set(exp.map(t=>effCat(t)))];
+  const cats=[...new Set(all.map(t=>effCat(t)))];
   document.getElementById("drawerTitle").innerHTML=`🏪 ${esc(payee)}`;
-  document.getElementById("drawerSub").textContent=`Merchant profile · reflects all active filters`;
-  document.getElementById("drawerStats").innerHTML=
-    miniStat("Total Spent",INR(total))+miniStat("Payments",cnt.toLocaleString("en-IN"))+
-    miniStat("Avg Ticket",INR(avg))+miniStat("Largest",INR(Math.max(0,...amounts)))+
-    miniStat("First Seen",first)+miniStat("Last Seen",last);
+  document.getElementById("drawerSub").textContent=`Merchant / payee profile · reflects all active filters`;
+  // Show spend stats and/or income stats depending on what this payee actually has.
+  let stats="";
+  if(exp.length) stats+=miniStat("Total Spent",INR(spent))+miniStat("Payments Out",exp.length.toLocaleString("en-IN"))+
+    miniStat("Avg Ticket",INR(exp.length?spent/exp.length:0))+miniStat("Largest Spend",INR(Math.max(0,...exp.map(t=>t.amount))));
+  if(inc.length) stats+=miniStat("Total Received",INR(received))+miniStat("Payments In",inc.length.toLocaleString("en-IN"))+
+    miniStat("Avg Received",INR(inc.length?received/inc.length:0))+miniStat("Largest Received",INR(Math.max(0,...inc.map(t=>t.amount))));
+  if(exp.length && inc.length) stats+=miniStat("Net Flow",INR(received-spent));
+  stats+=miniStat("First Seen",first)+miniStat("Last Seen",last);
+  document.getElementById("drawerStats").innerHTML=stats;
   const curCat=CAT_OVERRIDES[payee.toUpperCase()]||cats[0]||"Others / Uncategorized";
   const opts=allCategories().map(c=>`<option ${c===curCat?"selected":""}>${esc(c)}</option>`).join("");
   document.getElementById("drawerExtra").innerHTML=
@@ -1005,7 +1029,7 @@ function openMerchantDrawer(payee){
       <button class="tbtn alt" id="recatApply" style="padding:5px 10px">Save</button>
       <span id="recatMsg" class="muted" style="font-size:11px"></span></div>
      <div class="muted" style="font-size:10.5px;margin-top:4px">Saved on this device &amp; auto-applied to future uploads of this merchant.</div>`;
-  document.getElementById("drawerTable").innerHTML=drawerTxnTable(exp);
+  document.getElementById("drawerTable").innerHTML=drawerTxnTable(all);   // ALL transactions, both directions
   document.getElementById("recatApply").onclick=()=>{
     CAT_OVERRIDES[payee.toUpperCase()]=document.getElementById("recatSel").value;
     const ok=saveCatMap();
@@ -1013,7 +1037,8 @@ function openMerchantDrawer(payee){
     renderAll();
   };
   document.getElementById("drawerChart").style.display="";
-  openDrawer(); drawerLineChart(exp,"#28c76f");
+  // Trend line: if there's spend show spend, else show received.
+  openDrawer(); drawerLineChart(exp.length?exp:inc, exp.length?"#28c76f":"#5b8cff");
 }
 
 /* ---- export ---- */
@@ -1181,17 +1206,25 @@ function resetFileUI(){
   renderFileList();
 }
 
-// Merge all loaded files and remove duplicates (same date + amount + merchant).
+// Merge all loaded files and remove duplicates (same date + amount + direction + merchant).
+// Also records exactly which rows were dropped, grouped under the kept original, for transparency.
 function combinedRows(){
-  const all=[]; loadedFiles.forEach(f=>all.push(...f.rows));
-  const seen=new Set(); const out=[]; let dups=0;
+  const all=[]; loadedFiles.forEach((f,fi)=>f.rows.forEach(r=>all.push({...r,_file:f.name})));
+  const firstSeen=new Map();     // key -> kept transaction
+  const groups=new Map();        // key -> {kept, dupes:[...]}
+  const out=[]; let dups=0;
   for(const t of all){
     const k=t.date+"|"+t.amount+"|"+t.direction+"|"+t.payee.toUpperCase();
-    if(seen.has(k)){ dups++; continue; }
-    seen.add(k); out.push(t);
+    if(firstSeen.has(k)){
+      dups++;
+      if(!groups.has(k)) groups.set(k,{kept:firstSeen.get(k),dupes:[]});
+      groups.get(k).dupes.push(t);
+    }else{
+      firstSeen.set(k,t); out.push(t);
+    }
   }
   out.sort((a,b)=>a.key-b.key);
-  return {rows:out, dups};
+  return {rows:out, dups, dupGroups:[...groups.values()]};
 }
 
 function renderFileList(){
@@ -1206,8 +1239,37 @@ function renderFileList(){
   list.querySelectorAll(".frm").forEach(el=>el.onclick=()=>{ loadedFiles.splice(+el.dataset.i,1); renderFileList(); });
   const {rows,dups}=combinedRows();
   info.innerHTML=`Combined: <b>${rows.length.toLocaleString("en-IN")}</b> transactions across <b>${loadedFiles.length}</b> file(s)`+
-    (dups?` · <span class="dupwarn">${dups} duplicate(s) removed</span>`:``);
+    (dups?` · <span class="dupwarn duplink" style="cursor:pointer;text-decoration:underline">${dups} duplicate(s) removed</span> <span class="muted" style="font-size:11px">(view)</span>`:``);
+  if(dups){ info.querySelector(".duplink").onclick=showDuplicates; }
   document.getElementById("parseBtn").disabled=false;
+}
+
+// Transparency view: list every removed duplicate next to the copy that was kept.
+function showDuplicates(){
+  const {dups,dupGroups}=combinedRows();
+  const modal=document.getElementById("dupModal");
+  const body=document.getElementById("dupBody");
+  const single = loadedFiles.length<2;
+  let intro = single
+    ? `Your file lists the same transaction more than once (Google Pay sometimes records a payment twice). We keep one copy of each and hide the exact repeats below.`
+    : `When you combine files, a transaction that appears in more than one file is counted once. Here is every copy we hid, next to the one we kept.`;
+  let html=`<p class="lead">${esc(String(dups))} duplicate ${dups===1?"row":"rows"} hidden across ${dupGroups.length} transaction${dupGroups.length===1?"":"s"}. `+intro+`</p>`;
+  html+=`<div class="tablewrap" style="max-height:52vh"><table><thead><tr><th>Date</th><th>Merchant / Payee</th><th class="amt">Amount</th><th>Kept / Hidden</th>${single?"":"<th>File</th>"}</tr></thead><tbody>`;
+  dupGroups.forEach(g=>{
+    const rowsAll=[{...g.kept,_kept:true},...g.dupes.map(d=>({...d,_kept:false}))];
+    rowsAll.forEach((t,idx)=>{
+      const inc=t.direction==="Income";
+      html+=`<tr style="${idx===0?'border-top:2px solid var(--line)':''}">`+
+        `<td>${t.date}</td><td>${esc(t.payee)}</td>`+
+        `<td class="amt dir-${t.direction}">${inc?"+":"−"}${INR2(t.amount)}</td>`+
+        `<td>${t._kept?'<span style="color:var(--green)">✓ kept</span>':'<span style="color:var(--amber)">hidden</span>'}</td>`+
+        (single?"":`<td class="muted" style="font-size:11px">${esc(t._file||"")}</td>`)+`</tr>`;
+    });
+  });
+  html+=`</tbody></table></div>`;
+  html+=`<p class="muted" style="font-size:12px;margin-top:12px">Matched on the same <b>date, amount, direction and merchant</b>. If two of these were actually separate real payments (e.g. you paid the same shop the same amount twice on one day), tell us — we can turn duplicate-removal off.</p>`;
+  body.innerHTML=html;
+  modal.classList.add("show");
 }
 
 // Parse a single File → {rows, detect, error}
@@ -1316,8 +1378,12 @@ window.addEventListener("DOMContentLoaded",()=>{
   // "is my data safe?" modal
   const safeModal=document.getElementById("safeModal");
   document.getElementById("safeLink").onclick=()=>safeModal.classList.add("show");
-  document.getElementById("safeClose").onclick=()=>safeModal.classList.remove("show");
-  safeModal.addEventListener("click",e=>{if(e.target===safeModal)safeModal.classList.remove("show");});
+  document.getElementById("safeClose").onclick=()=>safeModal.classList.remove("show");  safeModal.addEventListener("click",e=>{if(e.target===safeModal)safeModal.classList.remove("show");});
+
+  // "duplicates removed" modal
+  const dupModal=document.getElementById("dupModal");
+  document.getElementById("dupClose").onclick=()=>dupModal.classList.remove("show");
+  dupModal.addEventListener("click",e=>{if(e.target===dupModal)dupModal.classList.remove("show");});
 
   // Esc closes any open modal
   document.addEventListener("keydown",e=>{if(e.key==="Escape")
