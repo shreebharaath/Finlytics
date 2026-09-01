@@ -1330,11 +1330,7 @@ function combinedRows(){
   const groups=new Map();        // key -> {kept, dupes:[...]}
   const out=[]; let dups=0;
   for(const t of all){
-    // Include the timestamp when we have one (Google Pay records exact times), so two real
-    // payments to the same merchant for the same amount on the same day are NOT merged.
-    // Statements have no time (t.time=""), so those fall back to a date-level match as before.
-    const timePart = t.time ? "|"+t.time : "";
-    const k=t.date+timePart+"|"+t.amount+"|"+t.direction+"|"+t.payee.toUpperCase();
+    const k=t.date+"|"+t.amount+"|"+t.direction+"|"+t.payee.toUpperCase();
     if(firstSeen.has(k)){
       dups++;
       if(!groups.has(k)) groups.set(k,{kept:firstSeen.get(k),dupes:[]});
@@ -1387,7 +1383,7 @@ function showDuplicates(){
     });
   });
   html+=`</tbody></table></div>`;
-  html+=`<p class="muted" style="font-size:12px;margin-top:12px">Matched on the same <b>date, time, amount, direction and merchant</b> (statements without a timestamp match on date). Two real payments to the same shop at different times of day are kept as separate transactions.</p>`;
+  html+=`<p class="muted" style="font-size:12px;margin-top:12px">Matched on the same <b>date, amount, direction and merchant</b>. If two of these were actually separate real payments, tell us — we can adjust duplicate-removal.</p>`;
   body.innerHTML=html;
   modal.classList.add("show");
 }
